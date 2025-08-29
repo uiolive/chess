@@ -1,90 +1,73 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>中国象棋 · 浏览器双人对弈</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>中国象棋 · 浏览器双人对弈（修正版）</title>
   <style>
     :root{
-      --board-bg:#F6E6C9; /* 米黄棋盘 */
+      --cell:64px;       /* 棋盘两相邻交叉点间距 */
+      --pad: calc(var(--cell) / 2); /* 棋盘四周内边距，使最外侧交叉点不贴边 */
       --line:#8B5A2B;
+      --board-bg:#F6E6C9;
       --red:#C0392B;
       --black:#2C3E50;
-      --cell:64px; /* 单格尺寸 */
     }
     *{box-sizing:border-box}
-    body{
-      margin:0; font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Noto Sans CJK SC","Microsoft Yahei",sans-serif; 
-      background:#faf8f4; color:#333; display:flex; align-items:center; justify-content:center; min-height:100vh; padding:16px;
-    }
-    .app{display:grid; gap:16px; grid-template-columns:auto 260px; align-items:start}
-    @media (max-width: 900px){ .app{grid-template-columns:1fr} }
+    body{margin:0; font-family:system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans SC", "Microsoft Yahei", sans-serif; background:#faf8f4; color:#333; display:flex; align-items:center; justify-content:center; min-height:100vh; padding:16px}
 
-    /* 棋盘容器 */
-    .board-wrap{background:var(--board-bg); padding:16px; border:4px solid var(--line); border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.12)}
-    .board{
-      position:relative; 
-      width: calc(var(--cell) * 8 + var(--cell)); /* 9列 */
-      height: calc(var(--cell) * 9 + var(--cell)); /* 10行 */
-      background: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--cell) - 1px), var(--line) calc(var(--cell) - 1px), var(--line) var(--cell)),
-                  repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--cell) - 1px), var(--line) calc(var(--cell) - 1px), var(--line) var(--cell));
-      background-color:var(--board-bg);
-      border:2px solid var(--line);
-    }
-    /* 河界 */
-    .river{ position:absolute; left:0; top: calc(var(--cell) * 4 + 2px); width:100%; height: calc(var(--cell) + 2px); display:flex; align-items:center; justify-content:center; color:var(--line); font-weight:700; letter-spacing:.5em; opacity:.5; pointer-events:none }
+    .app{display:grid; gap:16px; grid-template-columns:auto 280px; align-items:start}
+    @media (max-width:900px){ .app{grid-template-columns:1fr} }
 
-    /* 九宫斜线 */
-    .palace-line{ position:absolute; width:0; height:0; border:1px solid var(--line); transform-origin:top left }
-    .palace-diag{ position:absolute; border-top:2px solid var(--line); transform-origin:top left }
-    .palace-diag.a{ left: calc(var(--cell) * 3); top: 0; width: calc(var(--cell) * 2); height: calc(var(--cell) * 2); transform: rotate(45deg); }
-    .palace-diag.b{ left: calc(var(--cell) * 5); top: 0; width: calc(var(--cell) * 2); height: calc(var(--cell) * 2); transform: rotate(135deg); }
-    .palace-diag.c{ left: calc(var(--cell) * 3); top: calc(var(--cell) * 7); width: calc(var(--cell) * 2); height: calc(var(--cell) * 2); transform: rotate(135deg); }
-    .palace-diag.d{ left: calc(var(--cell) * 5); top: calc(var(--cell) * 7); width: calc(var(--cell) * 2); height: calc(var(--cell) * 2); transform: rotate(45deg); }
+    .board-wrap{background:var(--board-bg); padding:18px; border:4px solid var(--line); border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,.12)}
 
-    /* 网格点（用于放棋子中心）*/
-    .grid{ position:absolute; inset:0; display:grid; grid-template-columns: repeat(9, var(--cell)); grid-template-rows: repeat(10, var(--cell)); }
+    /* 整个棋盘的可视区：宽 = 2*pad + 8*cell = 9*cell; 高 = 2*pad + 9*cell = 10*cell */
+    .board{ position:relative; width: calc(var(--cell) * 9); height: calc(var(--cell) * 10); background:linear-gradient(#fff0, #fff0); }
 
-    /* 交叉点点击层 */
-    .cell{ position:relative; }
+    /* SVG 覆盖层用于画线（确保斜线精确连接交叉点） */
+    svg.board-lines{ position:absolute; inset:0; pointer-events:none }
 
-    /* 落点高亮 */
-    .hint::after{
-      content:""; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); 
-      width:18px; height:18px; border:2px solid #16a085; border-radius:50%; background:rgba(22,160,133,.08);
-      box-shadow:0 0 0 4px rgba(22,160,133,.08);
-    }
-    .capture-hint::after{ border-color:#d35400; background:rgba(211,84,0,.08); box-shadow:0 0 0 4px rgba(211,84,0,.08) }
+    /* 交叉点（用于点击与提示） */
+    .intersection{ position:absolute; width:44px; height:44px; transform:translate(-50%,-50%); display:flex; align-items:center; justify-content:center; }
+    .intersection .hit{ position:absolute; inset:0; border-radius:50%; background:transparent; cursor:pointer }
+    .intersection.hint .hit::after{ content:""; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:18px; height:18px; border:2px solid #16a085; border-radius:50%; background:rgba(22,160,133,.06); box-shadow:0 0 0 4px rgba(22,160,133,.04) }
+    .intersection.capture-hint .hit::after{ border-color:#d35400; background:rgba(211,84,0,.06); box-shadow:0 0 0 4px rgba(211,84,0,.04) }
+    .intersection.lastmove .hit{ box-shadow:0 0 0 6px rgba(241,196,15,.08); border-radius:8px }
 
-    /* 棋子 */
-    .piece{ position:absolute; width:48px; height:48px; left:50%; top:50%; transform:translate(-50%,-50%); border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:28px; cursor:pointer; user-select:none; transition:transform .1s ease, box-shadow .1s ease; }
-    .red{ color:var(--red); background:#fff; border:2px solid #e3c7c2; text-shadow:0 1px 0 #fff }
-    .black{ color:var(--black); background:#fff; border:2px solid #c7d0da; text-shadow:0 1px 0 #fff }
-    .piece:hover{ transform:translate(-50%,-50%) scale(1.05) }
-    .selected{ box-shadow:0 0 0 3px rgba(52,152,219,.45) inset, 0 4px 12px rgba(0,0,0,.18) }
+    /* 棋子样式（绝对定位，居中于交叉点） */
+    .piece{ position:absolute; width:48px; height:48px; left:0; top:0; transform:translate(-50%,-50%); border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:28px; cursor:pointer; user-select:none; background:#fff }
+    .piece.red{ color:var(--red); border:2px solid #e3c7c2 }
+    .piece.black{ color:var(--black); border:2px solid #c7d0da }
+    .piece.selected{ box-shadow:0 0 0 3px rgba(52,152,219,.45) inset, 0 6px 18px rgba(0,0,0,.16) }
 
-    .controls{ display:flex; gap:8px; flex-wrap:wrap }
+    .controls{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px }
     button{ padding:10px 14px; border:none; border-radius:12px; background:#2c3e50; color:#fff; font-weight:700; cursor:pointer; box-shadow:0 6px 14px rgba(44,62,80,.25) }
     button.secondary{ background:#7f8c8d }
     button:disabled{ opacity:.5; cursor:not-allowed }
-    .panel{ background:#fff; border:1px solid #eee; border-radius:16px; padding:16px; box-shadow:0 10px 30px rgba(0,0,0,.08) }
-    .status{ font-weight:800; margin-bottom:10px }
-    .legend{ font-size:12px; color:#666; line-height:1.6 }
-    .lastmove{ outline: 3px dashed rgba(241,196,15,.6); outline-offset:-3px; border-radius:10px }
+
+    .panel{ width:260px; background:#fff; border:1px solid #eee; border-radius:12px; padding:16px; box-shadow:0 10px 30px rgba(0,0,0,.06) }
+    .status{ font-weight:800; margin-bottom:8px }
+    .legend{ font-size:13px; color:#666; line-height:1.6 }
+
+    /* 河界文案 */
+    .river{ position:absolute; left:50%; transform:translateX(-50%); top: calc(var(--pad) + var(--cell) * 4 + var(--cell) / 2 - 0.5em); pointer-events:none; font-weight:800; color:var(--line); letter-spacing:.6em; opacity:.55 }
+
+    /* 样式提示（响应式） */
+    @media (max-width:520px){ :root{ --cell:48px } .panel{ width:100% } }
   </style>
 </head>
 <body>
   <div class="app">
     <div class="board-wrap">
       <div id="board" class="board" aria-label="中国象棋棋盘">
-        <div class="river">楚河            汉界</div>
-        <div class="palace-diag a"></div>
-        <div class="palace-diag b"></div>
-        <div class="palace-diag c"></div>
-        <div class="palace-diag d"></div>
-        <div class="grid" id="grid"></div>
+        <!-- SVG 用来精确画线与九宫斜线 -->
+        <svg id="svgLines" class="board-lines" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>
+        <div id="intersectionsLayer"></div>
+        <div id="piecesLayer"></div>
+        <div id="river" class="river">楚河            汉界</div>
       </div>
-      <div class="controls" style="margin-top:12px">
+
+      <div class="controls">
         <button id="undoBtn" class="secondary" disabled>悔棋 (Undo)</button>
         <button id="resetBtn">重新开局</button>
         <button id="swapBtn" class="secondary">红黑对调视角</button>
@@ -106,12 +89,8 @@
   </div>
 
   <script>
-  // —————————————— 数据结构 ——————————————
-  const EMPTY = null;
-  const RED = 'red';
-  const BLACK = 'black';
-
-  // 10行x9列（y:0..9, x:0..8）。0在黑方底线，9在红方底线
+  // --------------------- 棋谱与规则（沿用之前逻辑） ---------------------
+  const EMPTY = null; const RED='red'; const BLACK='black';
   function initialBoard(){
     const B = Array.from({length:10},()=>Array(9).fill(EMPTY));
     const place = (x,y,type,color)=> B[y][x] = {type,color};
@@ -134,339 +113,216 @@
     return B;
   }
 
-  // 中文棋子字样
-  const LABEL = {
-    red: { R:'車', N:'馬', B:'相', A:'仕', K:'帥', C:'炮', P:'兵' },
-    black:{ R:'車', N:'馬', B:'象', A:'士', K:'將', C:'砲', P:'卒' }
-  };
+  const LABEL = { red: { R:'車', N:'馬', B:'相', A:'仕', K:'帥', C:'炮', P:'兵' }, black:{ R:'車', N:'馬', B:'象', A:'士', K:'將', C:'砲', P:'卒' } };
 
-  // —————————————— 工具函数 ——————————————
   const inBounds = (x,y)=> x>=0 && x<9 && y>=0 && y<10;
-  const cloneBoard = B => B.map(row=>row.map(c=> c? {...c}: null));
-  const isPalace = (x,y,color)=> {
-    if (color===RED) return x>=3 && x<=5 && y>=7 && y<=9;
-    return x>=3 && x<=5 && y>=0 && y<=2;
-  };
+  const cloneBoard = B => B.map(r=>r.map(c=> c? {...c}: null));
+  const isPalace = (x,y,color)=> color===RED? (x>=3&&x<=5&&y>=7&&y<=9) : (x>=3&&x<=5&&y>=0&&y<=2);
   const sameColor = (a,b)=> a && b && a.color===b.color;
   const enemyColor = c => c===RED?BLACK:RED;
+  const findKing = (B,color)=>{ for (let y=0;y<10;y++) for (let x=0;x<9;x++){ const p=B[y][x]; if (p && p.type==='K' && p.color===color) return {x,y}; } return null };
+  const emptyBetweenSameFile = (B,x,y1,y2)=>{ const [a,b]=y1<y2? [y1,y2]:[y2,y1]; for (let y=a+1;y<b;y++) if (B[y][x]) return false; return true };
+  const generalsFace = (B)=>{ const rk=findKing(B,RED), bk=findKing(B,BLACK); if(!rk||!bk) return false; if (rk.x===bk.x) return emptyBetweenSameFile(B,rk.x,rk.y,bk.y); return false };
 
-  const findKing = (B,color)=>{
-    for (let y=0;y<10;y++) for (let x=0;x<9;x++){
-      const p=B[y][x]; if (p && p.type==='K' && p.color===color) return {x,y};
-    }
-    return null;
-  };
-
-  const emptyBetweenSameFile = (B, x, y1, y2)=>{
-    const [a,b] = y1<y2? [y1,y2] : [y2,y1];
-    for (let y=a+1;y<b;y++){ if (B[y][x]) return false; }
-    return true;
-  };
-
-  const generalsFace = (B)=>{
-    const rk=findKing(B,RED), bk=findKing(B,BLACK);
-    if(!rk||!bk) return false;
-    if (rk.x===bk.x){
-      return emptyBetweenSameFile(B, rk.x, rk.y, bk.y);
-    }
-    return false;
-  };
-
-  // —————————————— 着法生成（不考虑将军，只考虑棋子本身规则） ——————————————
-  function genMovesForPiece(B, x, y){
-    const moves=[]; const p=B[y][x]; if(!p) return moves;
-    const push=(tx,ty)=>{ if(!inBounds(tx,ty)) return; const t=B[ty][tx]; if(!t || (t && t.color!==p.color)) moves.push({x:tx,y:ty}); };
-
+  function genMovesForPiece(B,x,y){
+    const moves=[]; const p=B[y][x]; if(!p) return moves; const push=(tx,ty)=>{ if(!inBounds(tx,ty)) return; const t=B[ty][tx]; if(!t || t.color!==p.color) moves.push({x:tx,y:ty}); };
     switch(p.type){
-      case 'R':{ // 车：直线行走，遇子停
-        // 四个方向
+      case 'R':{
         const dir=[[1,0],[-1,0],[0,1],[0,-1]];
-        for (const [dx,dy] of dir){
-          let nx=x+dx, ny=y+dy;
-          while(inBounds(nx,ny)){
-            if (!B[ny][nx]) { moves.push({x:nx,y:ny}); }
-            else { if (B[ny][nx].color!==p.color) moves.push({x:nx,y:ny}); break; }
-            nx+=dx; ny+=dy;
-          }
-        }
+        for (const [dx,dy] of dir){ let nx=x+dx, ny=y+dy; while(inBounds(nx,ny)){ if(!B[ny][nx]) moves.push({x:nx,y:ny}); else { if(B[ny][nx].color!==p.color) moves.push({x:nx,y:ny}); break; } nx+=dx; ny+=dy } }
         break;
       }
-      case 'N':{ // 马：日字，蹩马腿
+      case 'N':{
         const steps=[ [2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2] ];
-        for (const [dx,dy] of steps){
-          const leg = Math.abs(dx)===2? {x:x+Math.sign(dx), y:y} : {x:x, y:y+Math.sign(dy)}; // 挡腿格
-          const nx=x+dx, ny=y+dy;
-          if (inBounds(nx,ny) && !B[leg.y][leg.x]){
-            const t=B[ny][nx]; if(!t || t.color!==p.color) moves.push({x:nx,y:ny});
-          }
-        }
+        for (const [dx,dy] of steps){ const leg = Math.abs(dx)===2? {x:x+Math.sign(dx), y:y} : {x:x, y:y+Math.sign(dy)}; const nx=x+dx, ny=y+dy; if (inBounds(nx,ny) && !B[leg.y][leg.x]){ const t=B[ny][nx]; if(!t||t.color!==p.color) moves.push({x:nx,y:ny}); } }
         break;
       }
-      case 'B':{ // 相/象：田字，不过河，塞象眼
+      case 'B':{
         const steps=[[2,2],[2,-2],[-2,2],[-2,-2]];
-        for (const [dx,dy] of steps){
-          const nx=x+dx, ny=y+dy; const eye={x:x+dx/2, y:y+dy/2};
-          if (!inBounds(nx,ny)) continue;
-          // 不过河
-          if (p.color===RED && ny<5) continue;
-          if (p.color===BLACK && ny>4) continue;
-          if (!B[eye.y][eye.x]){
-            const t=B[ny][nx]; if(!t || t.color!==p.color) moves.push({x:nx,y:ny});
-          }
-        }
+        for (const [dx,dy] of steps){ const nx=x+dx, ny=y+dy; const eye={x:x+dx/2,y:y+dy/2}; if(!inBounds(nx,ny)) continue; if (p.color===RED && ny<5) continue; if (p.color===BLACK && ny>4) continue; if (!B[eye.y][eye.x]){ const t=B[ny][nx]; if(!t||t.color!==p.color) moves.push({x:nx,y:ny}); } }
         break;
       }
-      case 'A':{ // 士/仕：九宫斜走一步
-        const steps=[[1,1],[1,-1],[-1,1],[-1,-1]];
-        for (const [dx,dy] of steps){
-          const nx=x+dx, ny=y+dy; if (!inBounds(nx,ny)) continue;
-          if (!isPalace(nx,ny,p.color)) continue;
-          const t=B[ny][nx]; if(!t || t.color!==p.color) moves.push({x:nx,y:ny});
-        }
-        break;
+      case 'A':{
+        const steps=[[1,1],[1,-1],[-1,1],[-1,-1]]; for (const [dx,dy] of steps){ const nx=x+dx, ny=y+dy; if(!inBounds(nx,ny)) continue; if(!isPalace(nx,ny,p.color)) continue; const t=B[ny][nx]; if(!t||t.color!==p.color) moves.push({x:nx,y:ny}); } break;
       }
-      case 'K':{ // 将/帅：九宫内直走一步（另：照面吃将在攻击判定处理）
-        const steps=[[1,0],[-1,0],[0,1],[0,-1]];
-        for (const [dx,dy] of steps){
-          const nx=x+dx, ny=y+dy; if (!inBounds(nx,ny)) continue;
-          if (!isPalace(nx,ny,p.color)) continue;
-          const t=B[ny][nx]; if(!t || t.color!==p.color) moves.push({x:nx,y:ny});
-        }
-        // 将帅照面直接吃对方（若中间无子）——作为额外可走
-        const otherK = findKing(B, enemyColor(p.color));
-        if (otherK && otherK.x===x && emptyBetweenSameFile(B, x, y, otherK.y)){
-          moves.push({x:otherK.x, y:otherK.y});
-        }
-        break;
+      case 'K':{
+        const steps=[[1,0],[-1,0],[0,1],[0,-1]]; for (const [dx,dy] of steps){ const nx=x+dx, ny=y+dy; if(!inBounds(nx,ny)) continue; if(!isPalace(nx,ny,p.color)) continue; const t=B[ny][nx]; if(!t||t.color!==p.color) moves.push({x:nx,y:ny}); }
+        const otherK=findKing(B,enemyColor(p.color)); if (otherK && otherK.x===x && emptyBetweenSameFile(B,x,y,otherK.y)) moves.push({x:otherK.x,y:otherK.y}); break;
       }
-      case 'C':{ // 炮：平移。走子时不得越子；吃子需隔一子
-        const dir=[[1,0],[-1,0],[0,1],[0,-1]];
-        for (const [dx,dy] of dir){
-          let nx=x+dx, ny=y+dy; let jumped=false;
-          while(inBounds(nx,ny)){
-            if (!jumped){
-              if (!B[ny][nx]) moves.push({x:nx,y:ny});
-              else { jumped=true; }
-            } else {
-              if (B[ny][nx]){ if (B[ny][nx].color!==p.color) moves.push({x:nx,y:ny}); break; }
-            }
-            nx+=dx; ny+=dy;
-          }
-        }
-        break;
+      case 'C':{
+        const dir=[[1,0],[-1,0],[0,1],[0,-1]]; for (const [dx,dy] of dir){ let nx=x+dx, ny=y+dy; let jumped=false; while(inBounds(nx,ny)){ if(!jumped){ if(!B[ny][nx]) moves.push({x:nx,y:ny}); else jumped=true; } else { if(B[ny][nx]){ if(B[ny][nx].color!==p.color) moves.push({x:nx,y:ny}); break; } } nx+=dx; ny+=dy } } break;
       }
-      case 'P':{ // 兵/卒：未过河直进一格；过河后可左右平移一格；不可后退
-        const dy = p.color===RED? -1 : 1; // 红向上走
-        const forwardY = y+dy;
-        if (inBounds(x,forwardY)){
-          const t=B[forwardY][x]; if(!t || t.color!==p.color) moves.push({x:x,y:forwardY});
-        }
-        const crossedRiver = p.color===RED? (y<=4) : (y>=5);
-        if (crossedRiver){
-          for (const dx of [-1,1]){
-            const nx=x+dx; if (!inBounds(nx,y)) continue;
-            const t=B[y][nx]; if(!t || t.color!==p.color) moves.push({x:nx,y:y});
-          }
-        }
+      case 'P':{
+        const dy = p.color===RED? -1 : 1; const forwardY=y+dy; if(inBounds(x,forwardY)){ const t=B[forwardY][x]; if(!t||t.color!==p.color) moves.push({x:x,y:forwardY}); }
+        const crossed = p.color===RED? (y<=4) : (y>=5);
+        if (crossed){ for (const dx of [-1,1]){ const nx=x+dx; if(!inBounds(nx,y)) continue; const t=B[y][nx]; if(!t||t.color!==p.color) moves.push({x:nx,y:y}); } }
         break;
       }
     }
     return moves;
   }
 
-  // —————————————— 攻击判定（用于是否被将军） ——————————————
-  function squareAttackedBy(B, x, y, attackerColor){
-    // 检查所有攻击方棋子是否能吃到(x,y)
+  function squareAttackedBy(B,x,y,attackerColor){
     for (let yy=0; yy<10; yy++){
       for (let xx=0; xx<9; xx++){
-        const p=B[yy][xx]; if (!p || p.color!==attackerColor) continue;
+        const p=B[yy][xx]; if(!p || p.color!==attackerColor) continue;
         if (p.type==='R' || p.type==='C' || p.type==='K'){
-          // 直线相关先处理（炮/车/将飞吃）
-          if (xx===x){
-            let between=0; const [a,b] = yy<y? [yy,y] : [y,yy];
-            for (let ty=a+1; ty<b; ty++) if (B[ty][x]) between++;
-            if (p.type==='R' && between===0) return true;
-            if (p.type==='C' && between===1) return true;
-            if (p.type==='K'){
-              // 将帅飞将：同列且无子
-              if (between===0) return true;
-            }
-          }
-          if (yy===y){
-            let between=0; const [a,b] = xx<x? [xx,x] : [x,xx];
-            for (let tx=a+1; tx<b; tx++) if (B[y][tx]) between++;
-            if (p.type==='R' && between===0) return true;
-            if (p.type==='C' && between===1) return true;
-          }
+          if (xx===x){ let between=0; const [a,b]=yy<y? [yy,y]:[y,yy]; for (let ty=a+1; ty<b; ty++) if (B[ty][x]) between++; if (p.type==='R' && between===0) return true; if (p.type==='C' && between===1) return true; if (p.type==='K' && between===0) return true; }
+          if (yy===y){ let between=0; const [a,b]=xx<x? [xx,x]:[x,xx]; for (let tx=a+1; tx<b; tx++) if (B[y][tx]) between++; if (p.type==='R' && between===0) return true; if (p.type==='C' && between===1) return true; }
         }
-        // 马：按吃法判定（含蹩马腿）
         if (p.type==='N'){
-          const dx=x-xx, dy=y-yy; const adx=Math.abs(dx), ady=Math.abs(dy);
-          if ((adx===2 && ady===1) || (adx===1 && ady===2)){
-            const leg = adx===2? {x:xx+Math.sign(dx), y:yy} : {x:xx, y:yy+Math.sign(dy)};
-            if (!B[leg.y][leg.x]) return true;
-          }
+          const dx=x-xx, dy=y-yy, adx=Math.abs(dx), ady=Math.abs(dy);
+          if ((adx===2&&ady===1)||(adx===1&&ady===2)){ const leg = adx===2? {x:xx+Math.sign(dx), y:yy} : {x:xx, y:yy+Math.sign(dy)}; if (!B[leg.y][leg.x]) return true; }
         }
-        // 相/象：对角两格，塞象眼，不可过河
-        if (p.type==='B'){
-          const dx=Math.abs(x-xx), dy=Math.abs(y-yy);
-          if (dx===2 && dy===2){
-            const eye={x: (x+xx)/2, y:(y+yy)/2};
-            const riverOK = p.color===RED? (y>=5 && yy>=5) : (y<=4 && yy<=4);
-            if (riverOK && !B[eye.y][eye.x]) return true;
-          }
-        }
-        // 士/仕：九宫斜一步
-        if (p.type==='A'){
-          const dx=Math.abs(x-xx), dy=Math.abs(y-yy);
-          if (dx===1 && dy===1 && isPalace(x,y,p.color)) return true;
-        }
-        // 兵/卒
-        if (p.type==='P'){
-          const dx=x-xx, dy=y-yy;
-          if (p.color===RED){
-            if (dy===-1 && dx===0) return true; // 红向上
-            const crossed = yy<=4; if (crossed && Math.abs(dx)===1 && dy===0) return true;
-          } else {
-            if (dy===1 && dx===0) return true; // 黑向下
-            const crossed = yy>=5; if (crossed && Math.abs(dx)===1 && dy===0) return true;
-          }
-        }
+        if (p.type==='B'){ const dx=Math.abs(x-xx), dy=Math.abs(y-yy); if (dx===2 && dy===2){ const eye={x:(x+xx)/2,y:(y+yy)/2}; const riverOK = p.color===RED? (y>=5 && yy>=5) : (y<=4 && yy<=4); if (riverOK && !B[eye.y][eye.x]) return true; } }
+        if (p.type==='A'){ const dx=Math.abs(x-xx), dy=Math.abs(y-yy); if (dx===1 && dy===1 && isPalace(x,y,p.color)) return true; }
+        if (p.type==='P'){ const dx=x-xx, dy=y-yy; if (p.color===RED){ if (dy===-1 && dx===0) return true; const crossed = yy<=4; if (crossed && Math.abs(dx)===1 && dy===0) return true; } else { if (dy===1 && dx===0) return true; const crossed = yy>=5; if (crossed && Math.abs(dx)===1 && dy===0) return true; } }
       }
     }
     return false;
   }
 
-  // 过滤走法：不能使己方被将，且走后不得将帅照面
-  function legalMoves(B, x, y){
-    const p=B[y][x]; if(!p) return [];
-    const raw=genMovesForPiece(B,x,y);
-    const out=[];
-    for (const m of raw){
-      const B2=cloneBoard(B);
-      B2[m.y][m.x]=B2[y][x]; B2[y][x]=EMPTY;
-      // 走后不允许将帅照面
-      if (generalsFace(B2)) continue;
-      const k=findKing(B2,p.color);
-      if (!squareAttackedBy(B2, k.x, k.y, enemyColor(p.color))) out.push(m);
-    }
-    return out;
-  }
+  function legalMoves(B,x,y){ const p=B[y][x]; if(!p) return []; const raw=genMovesForPiece(B,x,y); const out=[]; for (const m of raw){ const B2=cloneBoard(B); B2[m.y][m.x]=B2[y][x]; B2[y][x]=EMPTY; if (generalsFace(B2)) continue; const k=findKing(B2,p.color); if (!squareAttackedBy(B2,k.x,k.y,enemyColor(p.color))) out.push(m); } return out }
 
-  // —————————————— UI渲染 ——————————————
-  const grid = document.getElementById('grid');
+  // --------------------- 渲染层（SVG + 交叉点定位） ---------------------
+  const boardEl = document.getElementById('board');
+  const svg = document.getElementById('svgLines');
+  const interLayer = document.getElementById('intersectionsLayer');
+  const piecesLayer = document.getElementById('piecesLayer');
+  const riverEl = document.getElementById('river');
   const statusEl = document.getElementById('status');
   const undoBtn = document.getElementById('undoBtn');
   const resetBtn = document.getElementById('resetBtn');
   const swapBtn = document.getElementById('swapBtn');
 
   let board = initialBoard();
-  let turn = RED; // 红先
-  let selected = null; // {x,y}
-  let hints = []; // 可落点
-  let history = []; // 悔棋栈：存储克隆局面、回合方
-  let flipped = false; // 视角是否翻转
-  let lastMove = null; // {from:{x,y}, to:{x,y}}
+  let turn = RED; let selected = null; let hints = []; let history = []; let flipped = false; let lastMove = null;
 
-  function cellId(x,y){ return `c-${x}-${y}` }
+  function px(n){ return n + 'px' }
 
+  function drawBoardGraphics(){
+    // 读取css变量（像素值）
+    const style = getComputedStyle(document.documentElement);
+    const cell = parseFloat(style.getPropertyValue('--cell')) || 64;
+    const pad = parseFloat(style.getPropertyValue('--pad')) || (cell/2);
+    const boardW = pad*2 + cell*8; // = 9*cell
+    const boardH = pad*2 + cell*9; // = 10*cell
+
+    // 设置 svg viewBox
+    svg.setAttribute('viewBox', `0 0 ${boardW} ${boardH}`);
+    svg.setAttribute('width','100%'); svg.setAttribute('height','100%');
+    svg.innerHTML='';
+
+    const makeLine = (x1,y1,x2,y2, cls='') =>{
+      const l = document.createElementNS('http://www.w3.org/2000/svg','line');
+      l.setAttribute('x1',x1); l.setAttribute('y1',y1); l.setAttribute('x2',x2); l.setAttribute('y2',y2);
+      l.setAttribute('stroke', getComputedStyle(document.documentElement).getPropertyValue('--line'));
+      l.setAttribute('stroke-width', 2);
+      l.setAttribute('stroke-linecap','round');
+      if (cls) l.setAttribute('class',cls);
+      svg.appendChild(l);
+    };
+
+    // 竖线：9条，从 top pad 到 bottom pad+9*cell
+    for (let i=0;i<9;i++){
+      const x = pad + i*cell; makeLine(x, pad, x, pad + 9*cell);
+    }
+    // 横线：10条，从 left pad 到 right pad+8*cell
+    for (let j=0;j<10;j++){
+      const y = pad + j*cell; makeLine(pad, y, pad + 8*cell, y);
+    }
+
+    // 九宫斜线：黑方（上）九宫
+    const x3 = pad + 3*cell, x5 = pad + 5*cell;
+    const y0 = pad + 0*cell, y2 = pad + 2*cell;
+    makeLine(x3,y0,x5,y2);
+    makeLine(x5,y0,x3,y2);
+    // 红方（下）九宫
+    const y7 = pad + 7*cell, y9 = pad + 9*cell;
+    makeLine(x3,y7,x5,y9);
+    makeLine(x5,y7,x3,y9);
+
+    // 可选：在中间河界处添加一些装饰性的短线或点（此处保持干净）
+  }
+
+  // 创建交叉点与棋子 DOM
   function render(){
-    grid.innerHTML='';
-    grid.style.transform = flipped? 'rotate(180deg)' : 'none';
-    // 画格与子
+    drawBoardGraphics();
+    interLayer.innerHTML=''; piecesLayer.innerHTML='';
+
+    const style = getComputedStyle(document.documentElement);
+    const cell = parseFloat(style.getPropertyValue('--cell')) || 64;
+    const pad = parseFloat(style.getPropertyValue('--pad')) || (cell/2);
+
+    // 设置 board 整体旋转
+    boardEl.style.transform = flipped? 'rotate(180deg)' : 'none';
+    // 如果要保持河字、棋子不随旋转而倒置，可单独在渲染时旋转它们（下面对棋子单独处理）
+
+    // 生成交叉点层（用于在交叉点上显示可走点与接收点击）
     for (let y=0;y<10;y++){
       for (let x=0;x<9;x++){
-        const cell=document.createElement('div');
-        cell.className='cell'; cell.id=cellId(x,y);
-        // 最近一步落点描边
+        const ix = pad + x*cell, iy = pad + y*cell;
+        const inter = document.createElement('div');
+        inter.className = 'intersection';
+        inter.style.left = px(ix);
+        inter.style.top = px(iy);
+        inter.dataset.x = x; inter.dataset.y = y;
+        // hit 区可以扩大点击范围
+        const hit = document.createElement('div'); hit.className='hit';
+        inter.appendChild(hit);
+
+        // 标记最后一步
         if (lastMove && ((lastMove.to.x===x && lastMove.to.y===y) || (lastMove.from.x===x && lastMove.from.y===y))){
-          cell.classList.add('lastmove');
+          inter.classList.add('lastmove');
         }
-        // 提示点
-        if (selected && hints.some(h=>h.x===x&&h.y===y)){
-          const target = board[y][x];
-          cell.classList.add(target? 'capture-hint':'hint');
+        // 如果选中并该点在提示中，标记提示类
+        if (selected && hints.some(h=>h.x===x && h.y===y)){
+          const tPiece = board[y][x]; if (tPiece) inter.classList.add('capture-hint'); else inter.classList.add('hint');
         }
-        // 棋子
-        const p=board[y][x];
-        if (p){
-          const piece=document.createElement('div');
-          piece.className=`piece ${p.color}`; piece.textContent = LABEL[p.color][p.type];
-          if (selected && selected.x===x && selected.y===y) piece.classList.add('selected');
-          piece.addEventListener('click', (e)=> onPieceClick(x,y));
-          if (flipped) piece.style.transform = 'translate(-50%,-50%) rotate(180deg)';
-          cell.appendChild(piece);
-        }
-        cell.addEventListener('click', ()=> onCellClick(x,y));
-        grid.appendChild(cell);
+
+        // 点击交叉点（空点或吃子）
+        hit.addEventListener('click', (e)=>{ e.stopPropagation(); onCellClick(x,y); });
+        interLayer.appendChild(inter);
       }
     }
 
-    // 状态
-    const side = turn===RED? '红方':'黑方';
-    statusEl.textContent = `轮到：${side}`;
+    // 渲染棋子（放到上层）
+    for (let y=0;y<10;y++){
+      for (let x=0;x<9;x++){
+        const p = board[y][x]; if (!p) continue;
+        const ix = pad + x*cell, iy = pad + y*cell;
+        const el = document.createElement('div'); el.className = `piece ${p.color}`; el.textContent = LABEL[p.color][p.type];
+        el.style.left = px(ix); el.style.top = px(iy);
+        // 旋转处理：如果整体翻转，为了让棋子字向上显示，需要再旋转180度抵消
+        el.style.transform = flipped? 'translate(-50%,-50%) rotate(180deg)' : 'translate(-50%,-50%)';
+        // 事件
+        el.addEventListener('click', (e)=>{ e.stopPropagation(); onPieceClick(x,y); });
+        // 标示选中
+        if (selected && selected.x===x && selected.y===y) el.classList.add('selected');
+        piecesLayer.appendChild(el);
+      }
+    }
+
+    // 河字在翻转时也需要反向旋转，让它对玩家保持可读
+    riverEl.style.transform = flipped? 'rotate(180deg)' : 'none';
+
+    statusEl.textContent = `轮到：${turn===RED? '红方':'黑方'}`;
     undoBtn.disabled = history.length===0;
   }
 
-  function onPieceClick(x,y){
-    const p=board[y][x]; if(!p) return;
-    if (p.color!==turn){ // 点击对方子：如果已选己方子且可走，则执行吃子
-      if (selected){
-        const can = hints.some(h=>h.x===x&&h.y===y);
-        if (can) return doMove(selected.x,selected.y,x,y);
-      }
-      return; // 否则忽略
-    }
-    // 选中/重选
-    if (selected && selected.x===x && selected.y===y){ selected=null; hints=[]; render(); return; }
-    selected = {x,y}; hints = legalMoves(board,x,y); render();
-  }
+  // 事件处理逻辑（沿用原有）
+  function onPieceClick(x,y){ const p=board[y][x]; if(!p) return; if (p.color!==turn){ if (selected){ const can = hints.some(h=>h.x===x&&h.y===y); if (can) return doMove(selected.x,selected.y,x,y); } return; } if (selected && selected.x===x && selected.y===y){ selected=null; hints=[]; render(); return; } selected={x,y}; hints = legalMoves(board,x,y); render(); }
+  function onCellClick(x,y){ if (!selected) return; const can = hints.some(h=>h.x===x&&h.y===y); if (can) doMove(selected.x,selected.y,x,y); }
 
-  function onCellClick(x,y){
-    if (!selected) return;
-    const can = hints.some(h=>h.x===x&&h.y===y);
-    if (can) doMove(selected.x,selected.y,x,y);
-  }
+  function doMove(sx,sy,tx,ty){ history.push({board: cloneBoard(board), turn, lastMove}); const moving = board[sy][sx]; const target = board[ty][tx]; board[ty][tx] = moving; board[sy][sx] = EMPTY; selected=null; hints=[]; lastMove = {from:{x:sx,y:sy}, to:{x:tx,y:ty}}; if (target && target.type==='K'){ setTimeout(()=>{ alert((moving.color===RED? '红':'黑') + '方胜！'); },100); } else { turn = enemyColor(turn); const k=findKing(board, turn); if (k && squareAttackedBy(board,k.x,k.y,enemyColor(turn))){ /* 可在状态栏额外标注 */ } } render(); }
 
-  function doMove(sx,sy,tx,ty){
-    // 记录历史（用于悔棋）
-    history.push({board: cloneBoard(board), turn, lastMove});
+  // 控件
+  undoBtn.addEventListener('click', ()=>{ if (history.length===0) return; const prev=history.pop(); board = prev.board; turn = prev.turn; lastMove = prev.lastMove || null; selected=null; hints=[]; render(); });
+  resetBtn.addEventListener('click', ()=>{ board = initialBoard(); turn=RED; selected=null; hints=[]; history=[]; lastMove=null; render(); });
+  swapBtn.addEventListener('click', ()=>{ flipped = !flipped; render(); });
 
-    const moving = board[sy][sx];
-    const target = board[ty][tx];
-    board[ty][tx] = moving; board[sy][sx] = EMPTY;
-    selected=null; hints=[];
-    lastMove = {from:{x:sx,y:sy}, to:{x:tx,y:ty}};
-
-    // 若吃到对方将/帅，宣布胜利
-    if (target && target.type==='K'){
-      alert((moving.color===RED? '红':'黑') + '方胜！');
-      // 保持最终局面；可重新开局
-    } else {
-      // 轮转
-      turn = enemyColor(turn);
-      // 若对手已被将军，提示
-      const k = findKing(board, turn);
-      if (k && squareAttackedBy(board, k.x, k.y, enemyColor(turn))){
-        statusEl.textContent = `将军！轮到：${turn===RED?'红':'黑'}方`;
-      }
-    }
-    render();
-  }
-
-  undoBtn.addEventListener('click', ()=>{
-    if (history.length===0) return;
-    const prev=history.pop();
-    board = prev.board; turn = prev.turn; lastMove = prev.lastMove || null; selected=null; hints=[]; render();
-  });
-  resetBtn.addEventListener('click', ()=>{
-    board = initialBoard(); turn=RED; selected=null; hints=[]; history=[]; lastMove=null; render();
-  });
-  swapBtn.addEventListener('click', ()=>{ flipped=!flipped; render(); });
-
-  // 开局不允许将帅照面（正常布局不会，但防守护）
+  // 初始化渲染
   if (generalsFace(board)) console.warn('初始局面异常：将帅照面');
-
   render();
   </script>
 </body>
